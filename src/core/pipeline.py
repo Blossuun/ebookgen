@@ -1,9 +1,8 @@
-"""Stage orchestration for Sprint 1 conversion pipeline."""
+"""Stage orchestration for conversion pipeline with checkpoint resume."""
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
-import json
+from dataclasses import dataclass
 from pathlib import Path
 import shutil
 import time
@@ -11,22 +10,16 @@ from uuid import uuid4
 
 from core.assembler import assemble
 from core.finalizer import FinalizeResult, finalize
+from core.manifest import (
+    create_manifest,
+    read_manifest,
+    resolve_resume_stage,
+    update_stage_status,
+)
 from core.ocr import OCRResult, run_ocr
 from core.optimizer import optimize_pdf
+from core.pipeline_types import PipelineSettings, STAGE_NAMES
 from core.validator import ValidationResult, validate
-
-STAGE_NAMES = ("validate", "assemble", "ocr", "optimize", "finalize")
-
-
-@dataclass(frozen=True)
-class PipelineSettings:
-    """User-facing conversion settings."""
-
-    language: str = "kor+eng"
-    optimize_mode: str = "basic"
-    error_policy: str = "skip"
-    front_cover: int | None = None
-    back_cover: int | None = None
 
 
 @dataclass(frozen=True)
@@ -41,31 +34,6 @@ class PipelineResult:
     report_json: Path
 
 
-def _stage_state() -> dict[str, str]:
-    return {stage: "pending" for stage in STAGE_NAMES}
-
-
-def _manifest_payload(book_id: str, title: str, settings: PipelineSettings) -> dict[str, object]:
-    return {
-        "book_id": book_id,
-        "title": title,
-        "current_stage": "validate",
-        "stages": _stage_state(),
-        "settings": asdict(settings),
-    }
-
-
-def _write_manifest(manifest_path: Path, payload: dict[str, object]) -> None:
-    manifest_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _update_stage(manifest_path: Path, stage: str, status: str) -> None:
-    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
-    payload["current_stage"] = stage
-    payload["stages"][stage] = status
-    _write_manifest(manifest_path, payload)
-
-
 def _prepare_book_directory(book_dir: Path) -> None:
     (book_dir / "input").mkdir(parents=True, exist_ok=True)
     (book_dir / "stage").mkdir(parents=True, exist_ok=True)
@@ -77,81 +45,143 @@ def _copy_input_files(validation: ValidationResult, input_dir: Path) -> None:
         shutil.copy2(file_path, input_dir / file_path.name)
 
 
+def _synchronize_input(input_dir: Path, book_dir: Path, resume: bool) -> None:
+    canonical_input_dir = book_dir / "input"
+    existing_input = sorted(canonical_input_dir.glob("*")) if canonical_input_dir.exists() else []
+    if resume and existing_input:
+        return
+
+    validation = validate(input_dir.resolve())
+    _copy_input_files(validation, canonical_input_dir)
+
+
+def _stage_index(stage: str) -> int:
+    return list(STAGE_NAMES).index(stage)
+
+
+def _should_run_stage(*, stage: str, start_stage: str, stage_status: str) -> bool:
+    if stage_status == "done":
+        return False
+    return _stage_index(stage) >= _stage_index(start_stage)
+
+
 def run_pipeline(
     input_dir: Path,
     workspace_dir: Path = Path("workspace/books"),
     settings: PipelineSettings | None = None,
     book_id: str | None = None,
+    resume: bool = False,
 ) -> PipelineResult:
-    """Run all conversion stages end-to-end and return output paths."""
-    config = settings or PipelineSettings()
+    """Run all conversion stages and return output paths."""
     resolved_input_dir = input_dir.resolve()
     resolved_book_id = book_id or uuid4().hex[:12]
     book_dir = workspace_dir.resolve() / resolved_book_id
     manifest_path = book_dir / "manifest.json"
     title = resolved_input_dir.name
 
-    validation = validate(resolved_input_dir)
     _prepare_book_directory(book_dir)
-    _copy_input_files(validation, book_dir / "input")
+    _synchronize_input(resolved_input_dir, book_dir, resume=resume)
 
-    manifest = _manifest_payload(book_id=resolved_book_id, title=title, settings=config)
-    _write_manifest(manifest_path, manifest)
+    if resume and manifest_path.exists():
+        manifest_payload = read_manifest(manifest_path)
+        config = settings or PipelineSettings(
+            language=manifest_payload["settings"].get("language", "kor+eng"),
+            optimize_mode=manifest_payload["settings"].get("optimize_mode", "basic"),
+            error_policy=manifest_payload["settings"].get("error_policy", "skip"),
+            front_cover=manifest_payload["settings"].get("front_cover"),
+            back_cover=manifest_payload["settings"].get("back_cover"),
+        )
+        start_stage = resolve_resume_stage(manifest_path)
+    else:
+        config = settings or PipelineSettings()
+        create_manifest(book_dir=book_dir, book_id=resolved_book_id, title=title, settings=config)
+        start_stage = "validate"
 
+    validation = validate(book_dir / "input")
     start_time = time.perf_counter()
-    current_stage = "validate"
+    ocr_result = OCRResult(backend="passthrough", failed_pages=[])
 
     try:
-        _update_stage(manifest_path, "validate", "running")
-        _update_stage(manifest_path, "validate", "done")
+        manifest_payload = read_manifest(manifest_path)
 
-        current_stage = "assemble"
-        _update_stage(manifest_path, current_stage, "running")
-        raw_pdf = assemble(
-            book_dir / "input",
-            book_dir / "stage",
-            front_cover=config.front_cover,
-            back_cover=config.back_cover,
-        )
-        _update_stage(manifest_path, current_stage, "done")
+        if _should_run_stage(
+            stage="validate",
+            start_stage=start_stage,
+            stage_status=manifest_payload["stages"]["validate"],
+        ):
+            update_stage_status(manifest_path, "validate", "running")
+            validate(book_dir / "input")
+            update_stage_status(manifest_path, "validate", "done")
 
-        current_stage = "ocr"
-        _update_stage(manifest_path, current_stage, "running")
-        ocr_result: OCRResult = run_ocr(
-            raw_pdf=raw_pdf,
-            ocr_pdf=book_dir / "stage" / "ocr.pdf",
-            sidecar_text=book_dir / "stage" / "text.txt",
-            language=config.language,
-            error_policy=config.error_policy,
-        )
-        _update_stage(manifest_path, current_stage, "done")
+        manifest_payload = read_manifest(manifest_path)
+        if _should_run_stage(
+            stage="assemble",
+            start_stage=start_stage,
+            stage_status=manifest_payload["stages"]["assemble"],
+        ):
+            update_stage_status(manifest_path, "assemble", "running")
+            assemble(
+                book_dir / "input",
+                book_dir / "stage",
+                front_cover=config.front_cover,
+                back_cover=config.back_cover,
+            )
+            update_stage_status(manifest_path, "assemble", "done")
 
-        current_stage = "optimize"
-        _update_stage(manifest_path, current_stage, "running")
-        optimize_pdf(
-            ocr_pdf=book_dir / "stage" / "ocr.pdf",
-            optimized_pdf=book_dir / "stage" / "optimized.pdf",
-            mode=config.optimize_mode,
-        )
-        _update_stage(manifest_path, current_stage, "done")
+        manifest_payload = read_manifest(manifest_path)
+        if _should_run_stage(stage="ocr", start_stage=start_stage, stage_status=manifest_payload["stages"]["ocr"]):
+            update_stage_status(manifest_path, "ocr", "running")
+            ocr_result = run_ocr(
+                raw_pdf=book_dir / "stage" / "raw.pdf",
+                ocr_pdf=book_dir / "stage" / "ocr.pdf",
+                sidecar_text=book_dir / "stage" / "text.txt",
+                language=config.language,
+                error_policy=config.error_policy,
+            )
+            update_stage_status(manifest_path, "ocr", "done")
 
-        current_stage = "finalize"
-        _update_stage(manifest_path, current_stage, "running")
-        finalize_result: FinalizeResult = finalize(
-            book_dir=book_dir,
-            title=title,
-            total_pages=validation.total_pages,
-            processing_time_sec=time.perf_counter() - start_time,
-            input_size_mb=validation.total_size_mb,
-            settings={
-                "ocr_language": config.language,
-                "optimize_mode": config.optimize_mode,
-                "error_policy": config.error_policy,
-            },
-            covers={"front": config.front_cover, "back": config.back_cover},
-            ocr_failed_pages=ocr_result.failed_pages,
-        )
-        _update_stage(manifest_path, current_stage, "done")
+        manifest_payload = read_manifest(manifest_path)
+        if _should_run_stage(
+            stage="optimize",
+            start_stage=start_stage,
+            stage_status=manifest_payload["stages"]["optimize"],
+        ):
+            update_stage_status(manifest_path, "optimize", "running")
+            optimize_pdf(
+                ocr_pdf=book_dir / "stage" / "ocr.pdf",
+                optimized_pdf=book_dir / "stage" / "optimized.pdf",
+                mode=config.optimize_mode,
+            )
+            update_stage_status(manifest_path, "optimize", "done")
+
+        manifest_payload = read_manifest(manifest_path)
+        if _should_run_stage(
+            stage="finalize",
+            start_stage=start_stage,
+            stage_status=manifest_payload["stages"]["finalize"],
+        ):
+            update_stage_status(manifest_path, "finalize", "running")
+            finalize_result: FinalizeResult = finalize(
+                book_dir=book_dir,
+                title=title,
+                total_pages=validation.total_pages,
+                processing_time_sec=time.perf_counter() - start_time,
+                input_size_mb=validation.total_size_mb,
+                settings={
+                    "ocr_language": config.language,
+                    "optimize_mode": config.optimize_mode,
+                    "error_policy": config.error_policy,
+                },
+                covers={"front": config.front_cover, "back": config.back_cover},
+                ocr_failed_pages=ocr_result.failed_pages,
+            )
+            update_stage_status(manifest_path, "finalize", "done")
+        else:
+            finalize_result = FinalizeResult(
+                output_pdf=book_dir / "out" / "book.pdf",
+                output_txt=book_dir / "out" / "book.txt",
+                report_json=book_dir / "out" / "report.json",
+            )
 
         return PipelineResult(
             book_id=resolved_book_id,
@@ -162,7 +192,8 @@ def run_pipeline(
             report_json=finalize_result.report_json,
         )
     except Exception:
+        stage = resolve_resume_stage(manifest_path) if manifest_path.exists() else "validate"
         if manifest_path.exists():
-            _update_stage(manifest_path, current_stage, "failed")
+            update_stage_status(manifest_path, stage, "failed")
         raise
 
