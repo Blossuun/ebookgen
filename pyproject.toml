@@ -22,6 +22,7 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["frontend*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
