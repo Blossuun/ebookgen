@@ -7,11 +7,23 @@ name = "ebookgen"
 version = "0.1.0"
 description = "Local OCR tool for converting image folders into searchable PDF and text"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+  "typer>=0.12,<1.0",
+  "pillow>=10.0,<12.0",
+  "img2pdf>=0.5,<1.0",
+]
+
+[project.scripts]
+ebookgen = "cli.main:app"
 
 [project.optional-dependencies]
+ocr = [
+  "ocrmypdf>=16.0,<17.0",
+]
+
 dev = [
   "pytest>=8.0,<9.0",
+  "pypdf>=5.0,<6.0",
   "ruff>=0.6,<1.0",
   "black>=24.0,<25.0",
   "pre-commit>=3.7,<4.0",
