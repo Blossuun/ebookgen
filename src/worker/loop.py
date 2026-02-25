@@ -12,16 +12,17 @@ from core.manifest import read_current_stage
 from core.pipeline import run_pipeline
 from core.pipeline_types import PipelineSettings
 from models.database import (
+    claim_job_by_id,
+    claim_next_pending_job,
     get_job,
-    fetch_pending_jobs,
     get_book,
     init_db,
     mark_job_done,
     mark_job_failed,
-    mark_job_running,
     mark_running_jobs_failed,
     update_book_status,
 )
+from models.schemas import Job
 
 PipelineRunner = Callable[..., object]
 
@@ -40,29 +41,29 @@ class WorkerLoop:
         return mark_running_jobs_failed(self.db_path, message)
 
     def process_once(self, now_iso: str | None = None) -> bool:
-        pending_jobs = fetch_pending_jobs(self.db_path, now_iso=now_iso, limit=1)
-        if not pending_jobs:
+        claimed_job = claim_next_pending_job(self.db_path, now_iso=now_iso)
+        if claimed_job is None:
             return False
 
-        self._execute_job(pending_jobs[0])
+        self._execute_job(claimed_job)
         return True
 
     def process_job(self, job_id: str) -> bool:
-        job = get_job(self.db_path, job_id)
-        if job is None:
+        # Keep visibility of missing jobs explicit while still claiming atomically.
+        if get_job(self.db_path, job_id) is None:
             return False
-        if job.status != "pending":
+        claimed_job = claim_job_by_id(self.db_path, job_id)
+        if claimed_job is None:
             return False
-        self._execute_job(job)
+        self._execute_job(claimed_job)
         return True
 
-    def _execute_job(self, job) -> None:
+    def _execute_job(self, job: Job) -> None:
         book = get_book(self.db_path, job.book_id)
         if book is None:
             mark_job_failed(self.db_path, job.id, f"Book not found: {job.book_id}")
             return
 
-        mark_job_running(self.db_path, job.id)
         update_book_status(self.db_path, book.id, status="running")
 
         settings = PipelineSettings(

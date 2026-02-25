@@ -246,6 +246,67 @@ def fetch_pending_jobs(db_path: Path, *, now_iso: str | None = None, limit: int 
     return [Job.from_row(row) for row in rows]
 
 
+def claim_next_pending_job(db_path: Path, *, now_iso: str | None = None) -> Job | None:
+    now_value = now_iso or utc_now_iso()
+    with connection(db_path) as conn:
+        candidate = conn.execute(
+            """
+            SELECT id FROM jobs
+            WHERE status = 'pending'
+              AND (scheduled_at IS NULL OR scheduled_at <= ?)
+            ORDER BY COALESCE(scheduled_at, created_at), created_at
+            LIMIT 1
+            """,
+            (now_value,),
+        ).fetchone()
+        if candidate is None:
+            return None
+
+        updated = conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'running', started_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now_value, now_value, candidate["id"]),
+        )
+        if updated.rowcount != 1:
+            return None
+
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (candidate["id"],)).fetchone()
+    return Job.from_row(row) if row is not None else None
+
+
+def claim_job_by_id(db_path: Path, job_id: str, *, now_iso: str | None = None) -> Job | None:
+    now_value = now_iso or utc_now_iso()
+    with connection(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT * FROM jobs
+            WHERE id = ? AND status = 'pending'
+            """,
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        scheduled_at = row["scheduled_at"]
+        if scheduled_at is not None and scheduled_at > now_value:
+            return None
+
+        updated = conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'running', started_at = ?, updated_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (now_value, now_value, job_id),
+        )
+        if updated.rowcount != 1:
+            return None
+        claimed = conn.execute("SELECT * FROM jobs WHERE id = ?", (job_id,)).fetchone()
+    return Job.from_row(claimed) if claimed is not None else None
+
+
 def fetch_running_jobs(db_path: Path) -> list[Job]:
     return list_jobs(db_path, status="running")
 

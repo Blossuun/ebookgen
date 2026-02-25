@@ -53,6 +53,35 @@ def _run_single_job(
         raise typer.Exit(code=1)
 
 
+def _warn_if_resume_overrides(
+    *,
+    book,
+    language: str,
+    optimize: str,
+    skip_errors: bool,
+    front_cover: int | None,
+    back_cover: int | None,
+) -> None:
+    ignored: list[str] = []
+    if book.ocr_language != language:
+        ignored.append("--language")
+    if book.optimize_mode != optimize:
+        ignored.append("--optimize")
+    if book.error_policy != ("skip" if skip_errors else "abort"):
+        ignored.append("--skip-errors/--abort-on-error")
+    if book.front_cover != front_cover:
+        ignored.append("--front-cover")
+    if book.back_cover != back_cover:
+        ignored.append("--back-cover")
+
+    if ignored:
+        typer.echo(
+            "Warning: --resume reuses saved settings; ignored options: "
+            + ", ".join(sorted(set(ignored))),
+            err=True,
+        )
+
+
 @app.callback()
 def cli() -> None:
     """ebookgen command group."""
@@ -90,6 +119,14 @@ def convert(
         book = find_latest_failed_book_by_source(db_path, input_dir.resolve())
         if book is None:
             raise typer.BadParameter("No failed book found for --resume input.")
+        _warn_if_resume_overrides(
+            book=book,
+            language=language,
+            optimize=optimize,
+            skip_errors=skip_errors,
+            front_cover=front_cover,
+            back_cover=back_cover,
+        )
         job = create_job(db_path, book_id=book.id, resume=True)
     else:
         book = create_book(
@@ -139,6 +176,9 @@ def batch(
     db: Path | None = typer.Option(None, "--db", file_okay=True, dir_okay=False),
 ) -> None:
     """Create jobs for each subdirectory under input_root; optionally execute immediately."""
+    if run_now and delay_minutes > 0:
+        raise typer.BadParameter("--run-now and --delay-minutes are mutually exclusive.")
+
     books_root = output.resolve()
     books_root.mkdir(parents=True, exist_ok=True)
     db_path = _resolve_db_path(books_root, db)
