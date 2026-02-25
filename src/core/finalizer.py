@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 import shutil
 
 
@@ -19,15 +20,140 @@ class FinalizeResult:
 
 
 def _select_best_pdf(stage_dir: Path) -> Path:
-    for name in ("optimized.pdf", "ocr.pdf", "raw.pdf"):
+    for name in ("optimized.pdf", "ocr.pdf"):
         candidate = stage_dir / name
         if candidate.exists():
             return candidate
-    raise FileNotFoundError("No PDF artifact found under stage directory.")
+    raise FileNotFoundError("No OCR PDF artifact found under stage directory.")
 
 
 def _file_size_mb(path: Path) -> float:
     return round(path.stat().st_size / (1024 * 1024), 3)
+
+
+_LIST_MARKER_RE = re.compile(r"^(\d+[.)]|[-*])\s+")
+_NUMBER_ONLY_RE = re.compile(r"^\d+$")
+_TERMINAL_PUNCTUATION = (".", "!", "?", ":", ";", "。", "！", "？")
+_TOC_DOT_LEADER_RE = re.compile(r"^.{2,}\.{2,}\s*\d{1,4}\s*$")
+_TOC_PAGE_COLUMN_RE = re.compile(r"^.{2,70}\s{2,}\d{1,4}\s*$")
+
+
+def _symbol_ratio(line: str) -> float:
+    stripped = line.strip()
+    if not stripped:
+        return 0.0
+    symbol_count = sum(
+        1
+        for char in stripped
+        if not char.isalnum() and not char.isspace() and char not in ("-", "'", '"')
+    )
+    return symbol_count / len(stripped)
+
+
+def _is_toc_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    return _TOC_DOT_LEADER_RE.match(stripped) is not None or _TOC_PAGE_COLUMN_RE.match(stripped) is not None
+
+
+def _is_heading_like(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if len(stripped) > 48:
+        return False
+    if _LIST_MARKER_RE.match(stripped) is not None or _NUMBER_ONLY_RE.match(stripped) is not None:
+        return False
+    if _is_toc_line(stripped):
+        return False
+    if stripped.endswith(_TERMINAL_PUNCTUATION):
+        return False
+    if _symbol_ratio(stripped) > 0.15:
+        return False
+
+    tokens = re.findall(r"\w+", stripped, flags=re.UNICODE)
+    if not tokens or len(tokens) > 6:
+        return False
+
+    latin_words = re.findall(r"[A-Za-z][A-Za-z'-]*", stripped)
+    if latin_words:
+        if not stripped.isupper():
+            title_case_count = sum(1 for word in latin_words if word[0].isupper())
+            if len(latin_words) == 1:
+                required_title_case_count = 1
+            elif len(latin_words) == 2:
+                required_title_case_count = 2
+            else:
+                required_title_case_count = len(latin_words) - 1
+            if title_case_count < required_title_case_count:
+                return False
+    elif len(stripped) > 28 and len(tokens) >= 4:
+        return False
+
+    return True
+
+
+def _should_preserve_line_break(previous: str, current: str) -> bool:
+    if _is_toc_line(previous) or _is_toc_line(current):
+        return True
+    if _LIST_MARKER_RE.match(previous) is not None or _LIST_MARKER_RE.match(current) is not None:
+        return True
+    if _NUMBER_ONLY_RE.match(previous) is not None or _NUMBER_ONLY_RE.match(current) is not None:
+        return True
+    if _is_heading_like(previous) or _is_heading_like(current):
+        return True
+    if previous.endswith(_TERMINAL_PUNCTUATION) and _LIST_MARKER_RE.match(current) is not None:
+        return True
+    if _symbol_ratio(previous) >= 0.25 or _symbol_ratio(current) >= 0.25:
+        return True
+    return False
+
+
+def _normalize_ocr_paragraph(lines: list[str]) -> str:
+    if len(lines) <= 1:
+        return lines[0] if lines else ""
+
+    merged_lines = [lines[0]]
+    for line in lines[1:]:
+        previous = merged_lines[-1]
+
+        if _should_preserve_line_break(previous, line):
+            merged_lines.append(line)
+            continue
+
+        merged = previous
+        if merged.endswith("-") and line and line[0].islower():
+            merged_lines[-1] = merged[:-1] + line
+            continue
+
+        no_space_before = line.startswith((".", ",", ";", ":", "!", "?", "%", ")", "]", "}"))
+        no_space_after = merged.endswith(("(", "[", "{", "/", '"', "'"))
+        separator = "" if no_space_before or no_space_after else " "
+        merged_lines[-1] = f"{merged}{separator}{line}"
+
+    return "\n".join(re.sub(r"\s{2,}", " ", line).strip() for line in merged_lines)
+
+
+def _normalize_ocr_text(text: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n").replace("\f", "\n\n")
+    paragraphs: list[list[str]] = []
+    current: list[str] = []
+
+    for line in normalized.split("\n"):
+        stripped = line.strip()
+        if stripped:
+            current.append(stripped)
+            continue
+        if current:
+            paragraphs.append(current)
+            current = []
+
+    if current:
+        paragraphs.append(current)
+
+    normalized_paragraphs = [_normalize_ocr_paragraph(lines) for lines in paragraphs if lines]
+    return "\n\n".join(normalized_paragraphs).strip()
 
 
 def finalize(
@@ -48,14 +174,17 @@ def finalize(
     source_pdf = _select_best_pdf(stage_dir)
     source_txt = stage_dir / "text.txt"
     if not source_txt.exists():
-        source_txt.write_text("", encoding="utf-8")
+        raise FileNotFoundError("Missing OCR sidecar text artifact.")
 
     output_pdf = out_dir / "book.pdf"
     output_txt = out_dir / "book.txt"
     report_path = out_dir / "report.json"
 
     shutil.copy2(source_pdf, output_pdf)
-    shutil.copy2(source_txt, output_txt)
+    output_txt.write_text(
+        _normalize_ocr_text(source_txt.read_text(encoding="utf-8", errors="replace")),
+        encoding="utf-8",
+    )
 
     failed_pages = sorted(ocr_failed_pages or [])
     success_pages = max(0, total_pages - len(failed_pages))

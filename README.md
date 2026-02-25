@@ -21,6 +21,8 @@ Optional for real OCR:
 - Ghostscript
 - `uv sync --extra ocr`
 
+Without OCR dependencies, conversion fails by design.
+
 ## Setup
 
 ```bash

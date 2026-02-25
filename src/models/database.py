@@ -41,7 +41,7 @@ def init_db(db_path: Path) -> None:
                 current_stage TEXT NOT NULL DEFAULT 'validate',
                 ocr_language TEXT NOT NULL DEFAULT 'kor+eng',
                 optimize_mode TEXT NOT NULL DEFAULT 'basic',
-                error_policy TEXT NOT NULL DEFAULT 'skip',
+                error_policy TEXT NOT NULL DEFAULT 'abort',
                 front_cover INTEGER,
                 back_cover INTEGER,
                 created_at TEXT NOT NULL,
@@ -76,7 +76,7 @@ def create_book(
     book_id: str | None = None,
     ocr_language: str = "kor+eng",
     optimize_mode: str = "basic",
-    error_policy: str = "skip",
+    error_policy: str = "abort",
     front_cover: int | None = None,
     back_cover: int | None = None,
 ) -> Book:

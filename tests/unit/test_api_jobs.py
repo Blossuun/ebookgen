@@ -10,12 +10,13 @@ from api.app import create_app
 from models.database import mark_job_failed
 
 
-def _client(tmp_path: Path) -> TestClient:
+def _client(tmp_path: Path, pipeline_runner=None) -> TestClient:
     app = create_app(
         books_root=tmp_path / "books",
         db_path=tmp_path / "db.sqlite",
         inbox_root=tmp_path / "inbox",
         enable_watcher=False,
+        pipeline_runner=pipeline_runner,
     )
     return TestClient(app)
 
@@ -38,9 +39,23 @@ def _wait_job_status(client: TestClient, job_id: str, *, timeout_sec: float = 5.
     return "timeout"
 
 
+def _fake_pipeline_runner(**kwargs: object) -> object:
+    book_id = str(kwargs["book_id"])
+    workspace_dir = Path(kwargs["workspace_dir"])
+    book_dir = workspace_dir / book_id
+    out_dir = book_dir / "out"
+    stage_dir = book_dir / "stage"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (out_dir / "book.pdf").write_bytes(b"%PDF-1.4 fake")
+    (out_dir / "book.txt").write_text("recognized text", encoding="utf-8")
+    (out_dir / "report.json").write_text("{\"ok\": true}", encoding="utf-8")
+    return object()
+
+
 def test_create_job_immediate(make_image_sequence, tmp_path: Path) -> None:
     source_dir = make_image_sequence([1, 2, 3], directory_name="job_immediate")
-    with _client(tmp_path) as client:
+    with _client(tmp_path, pipeline_runner=_fake_pipeline_runner) as client:
         book = _create_book(client, source_dir)
         created = client.post("/api/jobs", json={"book_id": book["id"], "run_now": True})
         assert created.status_code == 201
@@ -101,7 +116,7 @@ def test_retry_failed_job(make_image_sequence, tmp_path: Path) -> None:
 
 def test_download_output_file(make_image_sequence, tmp_path: Path) -> None:
     source_dir = make_image_sequence([1, 2, 3], directory_name="job_output")
-    with _client(tmp_path) as client:
+    with _client(tmp_path, pipeline_runner=_fake_pipeline_runner) as client:
         book = _create_book(client, source_dir)
         created = client.post("/api/jobs", json={"book_id": book["id"], "run_now": True}).json()
         final_status = _wait_job_status(client, created["job"]["id"])

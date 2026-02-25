@@ -10,7 +10,7 @@ class BookCreateRequest(BaseModel):
     title: str | None = None
     ocr_language: str = "kor+eng"
     optimize_mode: str = "basic"
-    error_policy: str = "skip"
+    error_policy: str = "abort"
     front_cover: int | None = None
     back_cover: int | None = None
 

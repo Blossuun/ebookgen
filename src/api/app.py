@@ -5,11 +5,12 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 import threading
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 
+from core.pipeline import run_pipeline
 from api.routes.books import router as books_router
 from api.routes.jobs import router as jobs_router
 from api.routes.output import router as output_router
@@ -25,6 +26,7 @@ def create_app(
     db_path: Path | None = None,
     inbox_root: Path | None = None,
     enable_watcher: bool = True,
+    pipeline_runner: Callable[..., object] = run_pipeline,
 ) -> FastAPI:
     resolved_books_root = books_root.resolve()
     resolved_books_root.mkdir(parents=True, exist_ok=True)
@@ -35,7 +37,11 @@ def create_app(
     resolved_inbox_root.mkdir(parents=True, exist_ok=True)
     init_db(resolved_db_path)
 
-    worker = WorkerLoop(db_path=resolved_db_path, workspace_books_dir=resolved_books_root)
+    worker = WorkerLoop(
+        db_path=resolved_db_path,
+        workspace_books_dir=resolved_books_root,
+        pipeline_runner=pipeline_runner,
+    )
     worker.initialize()
     watcher = InboxWatcherService(
         db_path=resolved_db_path,

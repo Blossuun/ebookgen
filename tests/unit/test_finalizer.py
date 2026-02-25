@@ -53,3 +53,90 @@ def test_output_files_exist(tmp_path: Path) -> None:
     assert result.output_txt.exists()
     assert result.report_json.exists()
 
+
+def test_finalize_normalizes_ocr_text(tmp_path: Path) -> None:
+    book_dir = tmp_path / "book"
+    stage_dir = book_dir / "stage"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "optimized.pdf").write_bytes(b"%PDF-1.4 optimized")
+    (stage_dir / "text.txt").write_text(
+        "This is\nan OCR\nparagraph.\n\nhy-\nphenated words.\n",
+        encoding="utf-8",
+    )
+
+    result = finalize(
+        book_dir=book_dir,
+        title="Sample Book",
+        total_pages=2,
+        processing_time_sec=1.0,
+        input_size_mb=1.0,
+        settings={"ocr_language": "kor+eng", "optimize_mode": "basic", "error_policy": "abort"},
+        covers={"front": None, "back": None},
+    )
+
+    normalized = result.output_txt.read_text(encoding="utf-8")
+    assert normalized == "This is an OCR paragraph.\n\nhyphenated words."
+
+
+def test_finalize_preserves_list_and_number_lines(tmp_path: Path) -> None:
+    book_dir = tmp_path / "book"
+    stage_dir = book_dir / "stage"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "optimized.pdf").write_bytes(b"%PDF-1.4 optimized")
+    (stage_dir / "text.txt").write_text(
+        "1. first item\n2. second item\n\n12\nChapter title\n",
+        encoding="utf-8",
+    )
+
+    result = finalize(
+        book_dir=book_dir,
+        title="Sample Book",
+        total_pages=2,
+        processing_time_sec=1.0,
+        input_size_mb=1.0,
+        settings={"ocr_language": "kor+eng", "optimize_mode": "basic", "error_policy": "abort"},
+        covers={"front": None, "back": None},
+    )
+
+    normalized = result.output_txt.read_text(encoding="utf-8")
+    assert normalized == "1. first item\n2. second item\n\n12\nChapter title"
+
+
+def test_finalize_preserves_heading_and_toc_lines(tmp_path: Path) -> None:
+    book_dir = tmp_path / "book"
+    stage_dir = book_dir / "stage"
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "optimized.pdf").write_bytes(b"%PDF-1.4 optimized")
+    (stage_dir / "text.txt").write_text(
+        (
+            "Contents\n"
+            "Chapter 1 .... 1\n"
+            "Chapter 2 .... 17\n\n"
+            "Main Title\n"
+            "Subtitle\n"
+            "this body line\n"
+            "continues.\n"
+        ),
+        encoding="utf-8",
+    )
+
+    result = finalize(
+        book_dir=book_dir,
+        title="Sample Book",
+        total_pages=2,
+        processing_time_sec=1.0,
+        input_size_mb=1.0,
+        settings={"ocr_language": "kor+eng", "optimize_mode": "basic", "error_policy": "abort"},
+        covers={"front": None, "back": None},
+    )
+
+    normalized = result.output_txt.read_text(encoding="utf-8")
+    assert normalized == (
+        "Contents\n"
+        "Chapter 1 .... 1\n"
+        "Chapter 2 .... 17\n\n"
+        "Main Title\n"
+        "Subtitle\n"
+        "this body line continues."
+    )
+
