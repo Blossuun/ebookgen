@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import threading
 from typing import Any
 
 from fastapi import FastAPI
@@ -28,6 +29,10 @@ def create_app(*, books_root: Path = Path("workspace/books"), db_path: Path | No
     app.state.db_path = resolved_db_path
     app.state.worker = worker
     app.state.background_jobs: dict[str, Any] = {}
+    app.state.ws_connection_limit = 100
+    app.state.ws_max_connection_sec = 600.0
+    app.state.ws_active_connections = 0
+    app.state.ws_connection_lock = threading.Lock()
 
     app.include_router(books_router)
     app.include_router(jobs_router)
@@ -37,4 +42,3 @@ def create_app(*, books_root: Path = Path("workspace/books"), db_path: Path | No
 
 
 app = create_app()
-
