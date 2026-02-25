@@ -51,3 +51,16 @@ def test_accept_valid_directory(make_image_sequence) -> None:
     assert isinstance(result.total_size_mb, float)
     assert all(isinstance(file_path, Path) for file_path in result.files)
 
+
+def test_detect_missing_page_with_non_padded_filenames(tmp_path: Path) -> None:
+    book_dir = tmp_path / "non_padded"
+    book_dir.mkdir(parents=True, exist_ok=True)
+
+    for name in ("1.jpg", "10.jpg", "2.jpg"):
+        image = Image.new("RGB", (120, 160), color=(200, 200, 200))
+        image.save(book_dir / name, format="JPEG")
+        image.close()
+
+    with pytest.raises(MissingPageError) as error:
+        validate(book_dir)
+    assert error.value.missing_pages == [3, 4, 5, 6, 7, 8, 9]

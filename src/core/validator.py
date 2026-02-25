@@ -34,25 +34,23 @@ def extract_page_number(path: Path) -> int:
 
 
 def list_image_files(input_dir: Path) -> list[Path]:
-    """Return supported image files sorted by path name."""
+    """Return supported image files sorted by numeric page and then name."""
     if not input_dir.exists() or not input_dir.is_dir():
         raise FileNotFoundError(f"Input directory not found: {input_dir}")
 
-    files = sorted(
-        [
-            file_path
-            for file_path in input_dir.iterdir()
-            if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
-        ],
-        key=lambda path: path.name,
-    )
+    files = [
+        file_path
+        for file_path in input_dir.iterdir()
+        if file_path.is_file() and file_path.suffix.lower() in SUPPORTED_IMAGE_EXTENSIONS
+    ]
+    files.sort(key=lambda path: (extract_page_number(path), path.name))
     return files
 
 
 def _find_missing_pages(page_numbers: list[int]) -> list[int]:
     if not page_numbers:
         return []
-    expected = set(range(page_numbers[0], page_numbers[-1] + 1))
+    expected = set(range(min(page_numbers), max(page_numbers) + 1))
     return sorted(expected.difference(page_numbers))
 
 
@@ -94,4 +92,3 @@ def validate(input_dir: Path) -> ValidationResult:
         total_pages=len(files),
         total_size_mb=total_size_mb,
     )
-
