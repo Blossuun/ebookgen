@@ -7,7 +7,128 @@
   <title>ebookgen</title>
 </head>
 <body>
-  <main id="app"></main>
+  <div class="bg-layer"></div>
+  <main class="page">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">Local OCR Workbench</p>
+        <h1>ebookgen Dashboard</h1>
+      </div>
+      <div class="topbar-actions">
+        <a class="ghost-link" href="/docs" target="_blank" rel="noopener">API Docs</a>
+      </div>
+    </header>
+
+    <section class="add-book">
+      <label for="book-path-input">Add book by directory path</label>
+      <div class="row">
+        <input id="book-path-input" type="text" placeholder="C:\books\python-guide" />
+        <button id="add-book-btn" type="button">Add Book</button>
+        <button id="refresh-btn" type="button" class="secondary">Refresh</button>
+      </div>
+      <p id="global-message" class="message" aria-live="polite"></p>
+    </section>
+
+    <section class="content">
+      <article class="panel dashboard">
+        <header class="panel-header">
+          <h2>Library</h2>
+          <div class="panel-actions">
+            <button id="run-selected-btn" type="button">Run Selected</button>
+            <button id="schedule-selected-btn" type="button" class="secondary">Schedule 2AM</button>
+          </div>
+        </header>
+        <ul id="book-list" class="book-list"></ul>
+        <p id="book-empty-state" class="empty">No books yet. Add a folder path to start.</p>
+      </article>
+
+      <article class="panel detail">
+        <header class="panel-header">
+          <h2 id="detail-title">Book Detail</h2>
+          <span id="detail-status" class="status-badge pending">pending</span>
+        </header>
+        <p id="detail-meta" class="meta">Select a book to configure and run.</p>
+
+        <section class="preview">
+          <div>
+            <h3>Front 5</h3>
+            <div id="preview-front" class="chips"></div>
+          </div>
+          <div>
+            <h3>Back 5</h3>
+            <div id="preview-back" class="chips"></div>
+          </div>
+        </section>
+
+        <form id="settings-form" class="settings">
+          <label>
+            OCR Language
+            <select id="setting-language">
+              <option value="kor+eng">Korean + English</option>
+              <option value="eng">English</option>
+              <option value="kor">Korean</option>
+            </select>
+          </label>
+
+          <label>
+            Optimize
+            <select id="setting-optimize">
+              <option value="basic">Basic</option>
+              <option value="balanced">Balanced</option>
+              <option value="max">Max</option>
+            </select>
+          </label>
+
+          <label>
+            Error Policy
+            <select id="setting-error-policy">
+              <option value="skip">Skip</option>
+              <option value="abort">Abort</option>
+            </select>
+          </label>
+
+          <div class="row cover-row">
+            <label>
+              Front Cover
+              <input id="setting-front-cover" type="number" min="1" placeholder="optional" />
+            </label>
+            <label>
+              Back Cover
+              <input id="setting-back-cover" type="number" min="1" placeholder="optional" />
+            </label>
+          </div>
+
+          <label class="checkbox">
+            <input id="setting-resume" type="checkbox" />
+            Resume from checkpoint if available
+          </label>
+
+          <div class="panel-actions">
+            <button id="save-settings-btn" type="submit" class="secondary">Save Settings</button>
+            <button id="run-book-btn" type="button">Run Now</button>
+            <button id="schedule-book-btn" type="button" class="secondary">Schedule 2AM</button>
+          </div>
+        </form>
+
+        <section id="progress-section" class="progress" hidden>
+          <header class="panel-header">
+            <h3>Progress</h3>
+            <span id="progress-job-id"></span>
+          </header>
+          <div class="progress-track">
+            <div id="progress-bar" class="progress-bar"></div>
+          </div>
+          <p id="progress-text" class="meta"></p>
+          <div id="download-links" class="download-links"></div>
+        </section>
+      </article>
+    </section>
+
+    <footer class="footer-note">
+      Inbox watcher monitors <code>workspace/inbox</code> and auto-imports dropped folders.
+    </footer>
+  </main>
   <script src="js/app.js"></script>
 </body>
 </html>
+

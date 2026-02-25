@@ -8,7 +8,12 @@ from api.app import create_app
 
 
 def _client(tmp_path: Path) -> TestClient:
-    app = create_app(books_root=tmp_path / "books", db_path=tmp_path / "db.sqlite")
+    app = create_app(
+        books_root=tmp_path / "books",
+        db_path=tmp_path / "db.sqlite",
+        inbox_root=tmp_path / "inbox",
+        enable_watcher=False,
+    )
     return TestClient(app)
 
 
