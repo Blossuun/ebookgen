@@ -59,7 +59,7 @@ def read_settings(manifest_path: Path) -> PipelineSettings:
     return PipelineSettings(
         language=settings_payload.get("language", "kor+eng"),
         optimize_mode=settings_payload.get("optimize_mode", "basic"),
-        error_policy=settings_payload.get("error_policy", "skip"),
+        error_policy=settings_payload.get("error_policy", "abort"),
         front_cover=settings_payload.get("front_cover"),
         back_cover=settings_payload.get("back_cover"),
     )

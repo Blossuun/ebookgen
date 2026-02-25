@@ -87,7 +87,7 @@ def run_pipeline(
         config = settings or PipelineSettings(
             language=manifest_payload["settings"].get("language", "kor+eng"),
             optimize_mode=manifest_payload["settings"].get("optimize_mode", "basic"),
-            error_policy=manifest_payload["settings"].get("error_policy", "skip"),
+            error_policy=manifest_payload["settings"].get("error_policy", "abort"),
             front_cover=manifest_payload["settings"].get("front_cover"),
             back_cover=manifest_payload["settings"].get("back_cover"),
         )

@@ -8,6 +8,7 @@ Local tool to convert image folders into searchable PDF and TXT outputs.
 - Sprint 1: core pipeline + `convert` CLI
 - Sprint 2: SQLite state, manifest resume, worker loop, batch/status scheduling
 - Sprint 3: FastAPI books/jobs API + WebSocket progress
+- Sprint 4: Web dashboard UI + inbox watcher auto-import
 
 ## Requirements
 
@@ -19,6 +20,8 @@ Optional for real OCR:
 - Tesseract OCR
 - Ghostscript
 - `uv sync --extra ocr`
+
+Without OCR dependencies, conversion fails by design.
 
 ## Setup
 
@@ -70,6 +73,12 @@ Start API server:
 uv run ebookgen serve --host 127.0.0.1 --port 8000
 ```
 
+Open browser:
+
+```text
+http://127.0.0.1:8000
+```
+
 ## API
 
 - `GET /api/books`
@@ -83,6 +92,7 @@ uv run ebookgen serve --host 127.0.0.1 --port 8000
 - `POST /api/jobs/{id}/cancel`
 - `POST /api/jobs/{id}/retry`
 - `WS /ws/jobs/{job_id}`
+- `GET /api/output/{book_id}/{file}`
 
 ## Fast Dev Smoke
 
@@ -119,5 +129,11 @@ SQLite state DB:
 
 ```text
 workspace/db.sqlite
+```
+
+Inbox watcher directory:
+
+```text
+workspace/inbox
 ```
 

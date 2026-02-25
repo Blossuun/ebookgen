@@ -2,11 +2,26 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import shutil
 
 from core.pipeline import PipelineSettings, run_pipeline
 
 
-def test_full_pipeline_example_book(make_image_sequence, tmp_path: Path) -> None:
+def _patch_fake_ocr(monkeypatch) -> None:
+    def _fake_run_ocr(*, raw_pdf: Path, ocr_pdf: Path, sidecar_text: Path, **_: object):
+        shutil.copy2(raw_pdf, ocr_pdf)
+        sidecar_text.write_text("recognized text", encoding="utf-8")
+
+        class _Result:
+            failed_pages: list[int] = []
+
+        return _Result()
+
+    monkeypatch.setattr("core.pipeline.run_ocr", _fake_run_ocr)
+
+
+def test_full_pipeline_example_book(make_image_sequence, tmp_path: Path, monkeypatch) -> None:
+    _patch_fake_ocr(monkeypatch)
     input_dir = make_image_sequence([1, 2, 3, 4], directory_name="example_book")
     workspace_dir = tmp_path / "workspace" / "books"
 
@@ -20,7 +35,8 @@ def test_full_pipeline_example_book(make_image_sequence, tmp_path: Path) -> None
     assert result.report_json.exists()
 
 
-def test_manifest_tracks_stages(make_image_sequence, tmp_path: Path) -> None:
+def test_manifest_tracks_stages(make_image_sequence, tmp_path: Path, monkeypatch) -> None:
+    _patch_fake_ocr(monkeypatch)
     input_dir = make_image_sequence([1, 2, 3], directory_name="manifest_book")
     workspace_dir = tmp_path / "workspace" / "books"
 

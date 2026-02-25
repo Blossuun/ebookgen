@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import os
-import shutil
 from typing import Protocol
 
 
@@ -37,20 +36,20 @@ def run_ocr(
     ocr_pdf: Path,
     sidecar_text: Path,
     language: str = "kor+eng",
-    error_policy: str = "skip",
+    error_policy: str = "abort",
     skip_big_mb: int = 50,
     timeout_sec: int = 120,
     engine: OCREngine | None = None,
 ) -> OCRResult:
-    """Generate OCR PDF and sidecar text; fallback to passthrough when engine is unavailable."""
+    """Generate OCR PDF and sidecar text; fail when OCR cannot produce target artifacts."""
     ocr_pdf.parent.mkdir(parents=True, exist_ok=True)
     sidecar_text.parent.mkdir(parents=True, exist_ok=True)
 
     ocr_engine = engine or _load_ocr_engine()
     if ocr_engine is None:
-        shutil.copy2(raw_pdf, ocr_pdf)
-        sidecar_text.write_text("", encoding="utf-8")
-        return OCRResult(backend="passthrough", failed_pages=[])
+        raise RuntimeError(
+            "OCR engine is unavailable. Install ocrmypdf dependencies to generate searchable output."
+        )
 
     try:
         ocr_engine(
@@ -64,13 +63,11 @@ def run_ocr(
             deskew=True,
             rotate_pages=True,
         )
-        return OCRResult(backend="ocrmypdf", failed_pages=[])
-    except Exception:
-        if error_policy != "skip":
-            raise
+    except Exception as error:
+        raise RuntimeError("OCR stage failed to produce target outputs.") from error
 
-        # Skip policy guarantees output artifacts are still generated.
-        shutil.copy2(raw_pdf, ocr_pdf)
-        sidecar_text.write_text("", encoding="utf-8")
-        return OCRResult(backend="passthrough-error", failed_pages=[])
+    if not ocr_pdf.exists() or not sidecar_text.exists():
+        raise RuntimeError("OCR stage completed without required output artifacts.")
+
+    return OCRResult(backend="ocrmypdf", failed_pages=[])
 

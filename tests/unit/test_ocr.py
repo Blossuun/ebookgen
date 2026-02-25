@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import shutil
 
+import pytest
+
 from core.ocr import run_ocr
 
 
@@ -33,7 +35,7 @@ def test_sidecar_text_extracted(tmp_path: Path) -> None:
     assert sidecar.read_text(encoding="utf-8") == "recognized text"
 
 
-def test_partial_failure_continues(tmp_path: Path) -> None:
+def test_failure_raises_error(tmp_path: Path) -> None:
     raw_pdf = tmp_path / "raw.pdf"
     raw_pdf.write_bytes(b"%PDF-1.4 fake")
     ocr_pdf = tmp_path / "ocr.pdf"
@@ -42,14 +44,23 @@ def test_partial_failure_continues(tmp_path: Path) -> None:
     def _failing_engine(input_pdf: str, output_pdf: str, **kwargs: object) -> None:
         raise RuntimeError("ocr failed")
 
-    result = run_ocr(
-        raw_pdf=raw_pdf,
-        ocr_pdf=ocr_pdf,
-        sidecar_text=sidecar,
-        error_policy="skip",
-        engine=_failing_engine,
-    )
-    assert result.backend == "passthrough-error"
-    assert ocr_pdf.exists()
-    assert sidecar.exists()
+    with pytest.raises(RuntimeError):
+        run_ocr(
+            raw_pdf=raw_pdf,
+            ocr_pdf=ocr_pdf,
+            sidecar_text=sidecar,
+            error_policy="abort",
+            engine=_failing_engine,
+        )
+
+
+def test_missing_engine_raises_error(tmp_path: Path, monkeypatch) -> None:
+    raw_pdf = tmp_path / "raw.pdf"
+    raw_pdf.write_bytes(b"%PDF-1.4 fake")
+    ocr_pdf = tmp_path / "ocr.pdf"
+    sidecar = tmp_path / "text.txt"
+
+    monkeypatch.setattr("core.ocr._load_ocr_engine", lambda: None)
+    with pytest.raises(RuntimeError):
+        run_ocr(raw_pdf=raw_pdf, ocr_pdf=ocr_pdf, sidecar_text=sidecar, engine=None)
 
