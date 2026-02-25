@@ -124,6 +124,58 @@ def get_book(db_path: Path, book_id: str) -> Book | None:
     return Book.from_row(row) if row is not None else None
 
 
+def delete_book(db_path: Path, book_id: str) -> bool:
+    with connection(db_path) as conn:
+        result = conn.execute("DELETE FROM books WHERE id = ?", (book_id,))
+    return result.rowcount == 1
+
+
+def update_book_settings(
+    db_path: Path,
+    book_id: str,
+    *,
+    ocr_language: str | None = None,
+    optimize_mode: str | None = None,
+    error_policy: str | None = None,
+    front_cover: int | None = None,
+    back_cover: int | None = None,
+) -> Book | None:
+    existing = get_book(db_path, book_id)
+    if existing is None:
+        return None
+
+    next_ocr_language = ocr_language if ocr_language is not None else existing.ocr_language
+    next_optimize_mode = optimize_mode if optimize_mode is not None else existing.optimize_mode
+    next_error_policy = error_policy if error_policy is not None else existing.error_policy
+    next_front_cover = front_cover if front_cover is not None else existing.front_cover
+    next_back_cover = back_cover if back_cover is not None else existing.back_cover
+    now = utc_now_iso()
+
+    with connection(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE books
+            SET ocr_language = ?,
+                optimize_mode = ?,
+                error_policy = ?,
+                front_cover = ?,
+                back_cover = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (
+                next_ocr_language,
+                next_optimize_mode,
+                next_error_policy,
+                next_front_cover,
+                next_back_cover,
+                now,
+                book_id,
+            ),
+        )
+    return get_book(db_path, book_id)
+
+
 def list_books(db_path: Path) -> list[Book]:
     with connection(db_path) as conn:
         rows = conn.execute("SELECT * FROM books ORDER BY created_at DESC").fetchall()
@@ -322,6 +374,25 @@ def mark_job_running(db_path: Path, job_id: str) -> None:
             """,
             (now, now, job_id),
         )
+
+
+def cancel_job(db_path: Path, job_id: str) -> bool:
+    now = utc_now_iso()
+    with connection(db_path) as conn:
+        row = conn.execute("SELECT status FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            return False
+        if row["status"] in {"done", "failed", "cancelled"}:
+            return False
+        result = conn.execute(
+            """
+            UPDATE jobs
+            SET status = 'cancelled', finished_at = ?, error_message = 'Cancelled', updated_at = ?
+            WHERE id = ?
+            """,
+            (now, now, job_id),
+        )
+    return result.rowcount == 1
 
 
 def mark_job_done(db_path: Path, job_id: str) -> None:

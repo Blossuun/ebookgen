@@ -5,8 +5,9 @@ Local tool to convert image folders into searchable PDF and TXT outputs.
 ## Status
 
 - Sprint 0: bootstrap, CI, pre-commit, pytest wiring
-- Sprint 1: core pipeline + CLI convert
+- Sprint 1: core pipeline + `convert` CLI
 - Sprint 2: SQLite state, manifest resume, worker loop, batch/status scheduling
+- Sprint 3: FastAPI books/jobs API + WebSocket progress
 
 ## Requirements
 
@@ -39,28 +40,22 @@ Convert now:
 uv run ebookgen convert ./example --output ./workspace/books
 ```
 
-Resume latest failed run for same input:
+Resume latest failed run for the same input:
 
 ```bash
 uv run ebookgen convert ./example --resume --output ./workspace/books
 ```
 
-Queue batch jobs from subfolders:
+Queue jobs from subfolders:
 
 ```bash
 uv run ebookgen batch ./workspace/inbox --output ./workspace/books --queue-only
 ```
 
-Run batch jobs immediately:
+Run queued jobs immediately:
 
 ```bash
 uv run ebookgen batch ./workspace/inbox --output ./workspace/books --run-now
-```
-
-Delay batch jobs:
-
-```bash
-uv run ebookgen batch ./workspace/inbox --output ./workspace/books --delay-minutes 120
 ```
 
 Check status:
@@ -69,9 +64,29 @@ Check status:
 uv run ebookgen status --output ./workspace/books
 ```
 
+Start API server:
+
+```bash
+uv run ebookgen serve --host 127.0.0.1 --port 8000
+```
+
+## API
+
+- `GET /api/books`
+- `GET /api/books/{id}`
+- `POST /api/books`
+- `PATCH /api/books/{id}`
+- `DELETE /api/books/{id}`
+- `GET /api/books/{id}/preview`
+- `POST /api/jobs`
+- `GET /api/jobs/{id}`
+- `POST /api/jobs/{id}/cancel`
+- `POST /api/jobs/{id}/retry`
+- `WS /ws/jobs/{job_id}`
+
 ## Fast Dev Smoke
 
-Create a small subset instead of processing all `example/` pages:
+Create a subset instead of using the full `example/`:
 
 ```bash
 uv run python scripts/make_subset.py \
