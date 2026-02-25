@@ -1,32 +1,28 @@
 # ebookgen
 
-이미지 폴더를 검색 가능한 PDF(+TXT)로 변환하는 로컬 도구입니다.
+Local tool to convert image folders into searchable PDF and TXT outputs.
 
 ## Status
 
-- Sprint 0 완료: 프로젝트 부트스트랩, pre-commit, CI, pytest 실행 환경
-- Sprint 1 완료: Core Pipeline(Validate/Assemble/OCR/Optimize/Finalize), CLI(`convert`), 테스트
+- Sprint 0: bootstrap, CI, pre-commit, pytest wiring
+- Sprint 1: core pipeline + CLI convert
+- Sprint 2: SQLite state, manifest resume, worker loop, batch/status scheduling
 
 ## Requirements
 
 - Python 3.11+
-- `uv` (패키지/가상환경 관리)
+- `uv`
 
-실제 OCR(`ocrmypdf`)을 쓰려면 시스템 의존성도 필요합니다.
+Optional for real OCR:
 
-- Tesseract OCR (언어 데이터 포함)
+- Tesseract OCR
 - Ghostscript
+- `uv sync --extra ocr`
 
 ## Setup
 
 ```bash
 uv sync --extra dev
-```
-
-실제 OCR 엔진까지 포함하려면:
-
-```bash
-uv sync --extra dev --extra ocr
 ```
 
 ## Test
@@ -37,13 +33,45 @@ uv run pytest
 
 ## CLI
 
-기본 사용:
+Convert now:
 
 ```bash
-uv run ebookgen convert ./example
+uv run ebookgen convert ./example --output ./workspace/books
 ```
 
-개발 중 빠른 스모크 테스트(부분 샘플):
+Resume latest failed run for same input:
+
+```bash
+uv run ebookgen convert ./example --resume --output ./workspace/books
+```
+
+Queue batch jobs from subfolders:
+
+```bash
+uv run ebookgen batch ./workspace/inbox --output ./workspace/books --queue-only
+```
+
+Run batch jobs immediately:
+
+```bash
+uv run ebookgen batch ./workspace/inbox --output ./workspace/books --run-now
+```
+
+Delay batch jobs:
+
+```bash
+uv run ebookgen batch ./workspace/inbox --output ./workspace/books --delay-minutes 120
+```
+
+Check status:
+
+```bash
+uv run ebookgen status --output ./workspace/books
+```
+
+## Fast Dev Smoke
+
+Create a small subset instead of processing all `example/` pages:
 
 ```bash
 uv run python scripts/make_subset.py \
@@ -55,27 +83,7 @@ uv run python scripts/make_subset.py \
 uv run ebookgen convert ./workspace/dev-sample --output ./workspace/books
 ```
 
-옵션 사용:
-
-```bash
-uv run ebookgen convert ./example \
-  --language kor+eng \
-  --optimize basic \
-  --output ./workspace/books \
-  --skip-errors
-```
-
-지원 옵션:
-
-- `--language` OCR 언어 힌트 (기본: `kor+eng`)
-- `--optimize` `basic|balanced|max`
-- `--output` 결과 루트 디렉토리 (기본: `workspace/books`)
-- `--skip-errors / --abort-on-error`
-- `--front-cover`, `--back-cover` (페이지 번호)
-
 ## Output Layout
-
-명령 실행 시 `workspace/books/{book_id}` 아래에 생성됩니다.
 
 ```text
 workspace/books/{book_id}/
@@ -92,12 +100,9 @@ workspace/books/{book_id}/
 └── manifest.json
 ```
 
-## Notes
+SQLite state DB:
 
-- `ocrmypdf`가 없으면 Sprint 1에서는 OCR 단계를 passthrough로 처리해 산출물 생성을 유지합니다.
-- 실제 검색 가능한 PDF를 원하면 `--extra ocr` 설치 및 시스템 OCR 의존성 설치가 필요합니다.
+```text
+workspace/db.sqlite
+```
 
-## Dev Tools
-
-- Lint/format hooks: `pre-commit`, `ruff`, `black`
-- CI: GitHub Actions (`uv sync --extra dev`, `uv run pytest`)
