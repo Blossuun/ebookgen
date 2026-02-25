@@ -244,6 +244,18 @@ def status(
         )
 
 
+@app.command()
+def serve(
+    host: str = typer.Option("127.0.0.1", "--host"),
+    port: int = typer.Option(8000, "--port"),
+    reload: bool = typer.Option(False, "--reload/--no-reload"),
+) -> None:
+    """Start FastAPI server."""
+    import uvicorn
+
+    uvicorn.run("api.app:app", host=host, port=port, reload=reload)
+
+
 def main() -> None:
     """Entrypoint used by python -m execution."""
     app()
